@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+import os
+import sys
+import argparse
+import subprocess
+import json
+from pathlib import Path
+
+
+PROJECT_INFO = {
+    "express": {
+        "description": "Node.js Express web server",
+        "common_libs": ["cors", "helmet", "morgan", "dotenv", "nodemon", "mongoose", "bcrypt", "jsonwebtoken"]
+    },
+    "expo": {
+        "description": "React Native mobile app with Expo",
+        "common_libs": ["expo-constants", "expo-font", "axios"]
+    },
+    "github": {
+        "description": "Create empty remote GitHub repository",
+        "common_libs": []
+    }
+}
+
+def run(cmd, cwd=None):
+    print(f"Running: {cmd}")
+    subprocess.run(cmd, shell=True, check=True, cwd=cwd)
+
+def create_express(name, libs):
+    project_path = Path(name)
+    project_path.mkdir(exist_ok=True)
+
+    (project_path / "src").mkdir(exist_ok=True)
+    (project_path / "config").mkdir(exist_ok=True)
+
+    (project_path / "src" / "routes").mkdir(exist_ok=True)
+    (project_path / "src" / "controllers").mkdir(exist_ok=True)
+    (project_path / "src" / "models").mkdir(exist_ok=True)
+    (project_path / "src" / "middlewares").mkdir(exist_ok=True)
+    (project_path / "src" / "utils").mkdir(exist_ok=True)
+
+    (project_path / ".env").write_text("")
+    
+    run("npm init -y", cwd=project_path)
+
+    base_libs = ["express"]
+    if libs:
+        base_libs += libs
+    run(f"npm install {' '.join(base_libs)}", cwd=project_path)
+    
+    if "nodemon" not in base_libs:
+        run("npm install --save-dev nodemon", cwd=project_path)
+
+    package_json_path = project_path / "package.json"
+    
+    with open(package_json_path, 'r') as f:
+        package_data = json.load(f)
+    
+    package_data["scripts"] = {
+        "start": "node index.js",
+        "dev": "nodemon index.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    }
+    
+    with open(package_json_path, 'w') as f:
+        json.dump(package_data, f, indent=2)
+
+    index_js = f"""const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+app.get('/', (req, res) => {{
+    res.send('Hello from {name}!');
+}});
+
+app.listen(PORT, () => {{
+    console.log(`Server running on port ${{PORT}}`);
+}});"""
+    
+    (project_path / "index.js").write_text(index_js)
+
+    print(f"Express project '{name}' created.")
+    print("Available scripts:")
+    print("  npm start    - Start the server in production mode")
+    print("  npm run dev  - Start the server with nodemon for development")
+
+def create_expo(name, libs, nativewind=False):
+    cmd = f"npx rn-new {name}"
+    if nativewind:
+        cmd += " --nativewind"
+    
+    run(cmd, cwd=Path.cwd())
+    
+    if libs:
+        run(f"npm install {' '.join(libs)}", cwd=Path(name))
+    
+    print(f"Expo project '{name}' created.")
+
+def create_github_repo(name, description="", private=False, push_current=False):
+    try:
+        subprocess.run("gh --version", shell=True, check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        print("Error: GitHub CLI (gh) not found. Install it with:")
+        print("  sudo apt install gh")
+        print("  gh auth login")
+        return False
+
+    visibility = "--private" if private else "--public"
+    desc_arg = f'--description "{description}"' if description else ""
+
+    if push_current:
+        cmd = f"gh repo create {name} {visibility} {desc_arg} --source . --remote origin --push"
+        print("Creating repository and pushing current directory...")
+        try:
+            run("git init")
+            run("git add .")
+            run("git commit -m 'initial commit'")
+            run(cmd)
+            return True
+        except subprocess.CalledProcessError:
+            print("Failed to create/push repository.")
+            return False
+
+    cmd = f"gh repo create {name} {visibility} {desc_arg}"
+    try:
+        run(cmd)
+        print(f"GitHub repository '{name}' created successfully!")
+        return True
+    except subprocess.CalledProcessError:
+        print(f"Failed to create GitHub repository '{name}'")
+        return False
+
+def init_git_and_push(project_path, repo_name):
+    try:
+        run("git init", cwd=project_path)
+        run("git add .", cwd=project_path)
+        run('git commit -m "Initial commit"', cwd=project_path)
+        
+        result = subprocess.run("gh api user --jq .login", shell=True, capture_output=True, text=True)
+        username = result.stdout.strip()
+        
+        run(f"git remote add origin https://github.com/{username}/{repo_name}.git", cwd=project_path)
+        run("git branch -M main", cwd=project_path)
+        run("git push -u origin main", cwd=project_path)
+        
+        print(f"Project pushed to GitHub: https://github.com/{username}/{repo_name}")
+        return True
+    except subprocess.CalledProcessError:
+        print("Failed to push to GitHub")
+        return False
+
+def show_available_projects():
+    print("Available project types:\n")
+    for project_type, info in PROJECT_INFO.items():
+        print(f"{project_type} - {info['description']}")
+        if info["common_libs"]:
+            print(f"    Common libraries: {', '.join(info['common_libs'])}")
+        if project_type == "expo":
+            print("    Special flags: --nativewind")
+        if project_type == "github":
+            print("    Special flags: --private --description 'text' --push-current")
+        print()
+    print("Usage:")
+    print("  projinit <type> <name> [--with lib1 lib2 ...] [flags]\n")
+    print("GitHub type (remote repo only or push current):")
+    print("  projinit github my-repo")
+    print("  projinit github my-repo --private --description \"Test repo\"")
+    print("  projinit github my-repo --push-current")
+    print("  projinit github my-repo --push-current --private --description \"Existing code\"")
+    print("\nExamples:")
+    print("  projinit express my-api")
+    print("  projinit expo my-app --nativewind")
+    print("  projinit github lib-repo --push-current")
+
+def main():
+    if len(sys.argv) == 1:
+        show_available_projects()
+        return
+
+    parser = argparse.ArgumentParser(description="Initialize a new project with templates")
+    parser.add_argument("type", help="Project type (express, expo, github)")
+    parser.add_argument("name", help="Project name")
+    parser.add_argument("--with", nargs="*", help="Extra libraries to install", dest="libs")
+    parser.add_argument("--nativewind", action="store_true", help="Setup Expo project with NativeWind")
+    parser.add_argument("--github", action="store_true", help="Create GitHub repository (for express/expo types)")
+    parser.add_argument("--private", action="store_true", help="Make GitHub repository private")
+    parser.add_argument("--description", help="GitHub repository description")
+    parser.add_argument("--push-current", action="store_true", help="(github type only) Create repo and push current directory")
+    args = parser.parse_args()
+
+    if args.libs is None:
+        if args.type in PROJECT_INFO:
+            args.libs = PROJECT_INFO[args.type]["common_libs"]
+        else:
+            args.libs = []
+
+    project_created = False
+    project_path = None
+
+    if args.type == "express":
+        create_express(args.name, args.libs)
+        project_created = True
+        project_path = Path(args.name)
+    elif args.type == "expo":
+        create_expo(args.name, args.libs, args.nativewind)
+        project_created = True
+        project_path = Path(args.name)
+    elif args.type == "github":
+        create_github_repo(
+            args.name,
+            description=args.description or "",
+            private=args.private,
+            push_current=args.push_current
+        )
+        return
+    else:
+        print(f"Unknown project type: {args.type}")
+        print("\nAvailable project types:")
+        for project_type in PROJECT_INFO.keys():
+            print(f"  - {project_type}")
+        return
+
+    if args.github and project_created:
+        if create_github_repo(args.name, args.description or f"A {args.type} project", args.private):
+            init_git_and_push(project_path, args.name)
+
+
+if __name__ == "__main__":
+    main()
