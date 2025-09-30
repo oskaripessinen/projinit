@@ -10,15 +10,15 @@ from pathlib import Path
 PROJECT_INFO = {
     "express": {
         "description": "Node.js Express web server",
-        "common_libs": ["cors", "helmet", "morgan", "dotenv", "nodemon", "mongoose", "bcrypt", "jsonwebtoken"]
+        "default_libs": ["cors", "helmet", "morgan", "dotenv", "nodemon", "mongoose", "bcrypt", "jsonwebtoken"]
     },
     "expo": {
         "description": "React Native mobile app with Expo",
-        "common_libs": ["expo-constants", "expo-font", "axios"]
+        "default_libs": ["expo-constants", "expo-font", "axios"]
     },
     "github": {
         "description": "Create empty remote GitHub repository",
-        "common_libs": []
+        "default_libs": []
     }
 }
 
@@ -26,65 +26,126 @@ def run(cmd, cwd=None):
     print(f"Running: {cmd}")
     subprocess.run(cmd, shell=True, check=True, cwd=cwd)
 
-def create_express(name, libs):
+def create_express(name, libs, create_repo, use_ts=False):
     project_path = Path(name)
     project_path.mkdir(exist_ok=True)
 
     (project_path / "src").mkdir(exist_ok=True)
     (project_path / "config").mkdir(exist_ok=True)
-
     (project_path / "src" / "routes").mkdir(exist_ok=True)
     (project_path / "src" / "controllers").mkdir(exist_ok=True)
     (project_path / "src" / "models").mkdir(exist_ok=True)
     (project_path / "src" / "middlewares").mkdir(exist_ok=True)
     (project_path / "src" / "utils").mkdir(exist_ok=True)
 
+    gitignore = """.env
+node_modules
+dist
+"""
+    (project_path / ".gitignore").write_text(gitignore)
+
     (project_path / ".env").write_text("")
-    
+
     run("npm init -y", cwd=project_path)
 
     base_libs = ["express"]
     if libs:
         base_libs += libs
-    run(f"npm install {' '.join(base_libs)}", cwd=project_path)
-    
-    if "nodemon" not in base_libs:
-        run("npm install --save-dev nodemon", cwd=project_path)
+
+    if use_ts and "nodemon" in base_libs:
+        base_libs = [l for l in base_libs if l != "nodemon"]
+
+    run(f"npm install {' '.join(sorted(set(base_libs)))}", cwd=project_path)
+
+    dev_deps = []
+    if use_ts:
+        dev_deps += ["typescript", "ts-node-dev", "@types/node", "@types/express"]
+    else:
+        if "nodemon" not in base_libs:
+            dev_deps.append("nodemon")
+
+    if dev_deps:
+        run(f"npm install -D {' '.join(dev_deps)}", cwd=project_path)
 
     package_json_path = project_path / "package.json"
-    
-    with open(package_json_path, 'r') as f:
+    with open(package_json_path, "r") as f:
         package_data = json.load(f)
-    
-    package_data["scripts"] = {
-        "start": "node index.js",
-        "dev": "nodemon index.js",
-        "test": "echo \"Error: no test specified\" && exit 1"
-    }
-    
-    with open(package_json_path, 'w') as f:
+
+    if use_ts:
+        package_data["scripts"] = {
+            "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+            "build": "tsc",
+            "start": "node dist/index.js",
+            "test": 'echo "Error: no test specified" && exit 1'
+        }
+        tsconfig = {
+            "compilerOptions": {
+                "target": "ES2020",
+                "module": "commonjs",
+                "rootDir": "src",
+                "outDir": "dist",
+                "strict": True,
+                "esModuleInterop": True,
+                "forceConsistentCasingInFileNames": True,
+                "skipLibCheck": True
+            },
+            "include": ["src"],
+            "exclude": ["node_modules"]
+        }
+        (project_path / "tsconfig.json").write_text(json.dumps(tsconfig, indent=2))
+
+        index_ts = f"""import express, {{ Request, Response }} from 'express';
+
+        const app = express();
+        const PORT = process.env.PORT || 3000;
+
+        app.use(express.json());
+
+        app.get('/', (req: Request, res: Response) => {{
+        res.send('Hello from {name} (TypeScript)!');
+        }});
+
+        app.listen(PORT, () => {{
+        console.log(`Server running on port ${{PORT}}`);
+        }});
+        """
+        (project_path / "src" / "index.ts").write_text(index_ts)
+    else:
+        package_data["scripts"] = {
+            "start": "node index.js",
+            "dev": "nodemon index.js",
+            "test": 'echo "Error: no test specified" && exit 1'
+        }
+        index_js = f"""const express = require('express');
+            const app = express();
+            const PORT = process.env.PORT || 3000;
+
+            app.use(express.json());
+
+            app.get('/', (req, res) => {{
+                res.send('Hello from {name}!');
+            }});
+
+            app.listen(PORT, () => {{
+                console.log(`Server running on port ${{PORT}}`);
+            }});"""
+        (project_path / "index.js").write_text(index_js)
+
+    with open(package_json_path, "w") as f:
         json.dump(package_data, f, indent=2)
 
-    index_js = f"""const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 3000;
+    if create_repo:
+        create_github_repo(name, push_current=True, path=project_path)
 
-app.use(express.json());
-
-app.get('/', (req, res) => {{
-    res.send('Hello from {name}!');
-}});
-
-app.listen(PORT, () => {{
-    console.log(`Server running on port ${{PORT}}`);
-}});"""
-    
-    (project_path / "index.js").write_text(index_js)
-
-    print(f"Express project '{name}' created.")
-    print("Available scripts:")
-    print("  npm start    - Start the server in production mode")
-    print("  npm run dev  - Start the server with nodemon for development")
+    print(f"Express project '{name}' created ({'TypeScript' if use_ts else 'JavaScript'}).")
+    print("Scripts:")
+    if use_ts:
+        print("  npm run dev   - developement (ts-node-dev)")
+        print("  npm run build - build TypeScript")
+        print("  npm start     - run build (dist)")
+    else:
+        print("  npm run dev   - developement (nodemon)")
+        print("  npm start     - Production")
 
 def create_expo(name, libs, nativewind=False):
     cmd = f"npx rn-new {name}"
@@ -98,38 +159,83 @@ def create_expo(name, libs, nativewind=False):
     
     print(f"Expo project '{name}' created.")
 
-def create_github_repo(name, description="", private=False, push_current=False):
+def create_github_repo(
+    name,
+    description="",
+    private=False,
+    push_current=False,
+    path=None,
+    default_branch="main"
+):
+
     try:
         subprocess.run("gh --version", shell=True, check=True, capture_output=True)
     except subprocess.CalledProcessError:
-        print("Error: GitHub CLI (gh) not found. Install it with:")
-        print("  sudo apt install gh")
-        print("  gh auth login")
+        print("Error: GitHub CLI (gh) not found. Install it with:\n  sudo apt install gh\n  gh auth login")
         return False
 
+    repo_path = Path(path) if path else Path.cwd()
     visibility = "--private" if private else "--public"
     desc_arg = f'--description "{description}"' if description else ""
 
-    if push_current:
-        cmd = f"gh repo create {name} {visibility} {desc_arg} --source . --remote origin --push"
-        print("Creating repository and pushing current directory...")
+    def git(cmd):
+        run(cmd, cwd=repo_path)
+
+    if not push_current:
+        cmd = f"gh repo create {name} {visibility} {desc_arg} --confirm"
         try:
-            run("git init")
-            run("git add .")
-            run("git commit -m 'initial commit'")
-            run(cmd)
+            run(cmd, cwd=repo_path)
+            print(f"GitHub repository '{name}' created (empty).")
             return True
         except subprocess.CalledProcessError:
-            print("Failed to create/push repository.")
+            print("Failed to create GitHub repository.")
             return False
 
-    cmd = f"gh repo create {name} {visibility} {desc_arg}"
+
+    is_repo = (repo_path / ".git").exists()
+    if not is_repo:
+        git("git init")
+
+    has_commit = subprocess.run(
+        "git rev-parse --verify HEAD",
+        shell=True,
+        cwd=repo_path,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    ).returncode == 0
+
+    if not has_commit:
+        git("git add .")
+        git("git commit -m 'Initial commit'")
+
+    remote_exists = subprocess.run(
+        "git remote get-url origin",
+        shell=True,
+        cwd=repo_path,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    ).returncode == 0
+
+    if not remote_exists:
+        try:
+            run(f"gh repo create {name} {visibility} {desc_arg} --confirm", cwd=repo_path)
+        except subprocess.CalledProcessError:
+            print("Failed to create remote repository on GitHub.")
+            return False
+
+        result = subprocess.run("gh api user --jq .login", shell=True, capture_output=True, text=True)
+        username = result.stdout.strip()
+        git(f"git remote add origin https://github.com/{username}/{name}.git")
+    else:
+        print("Remote 'origin' already exists, skipping remote add.")
+
+    git(f"git branch -M {default_branch}")
     try:
-        run(cmd)
-        print(f"GitHub repository '{name}' created successfully!")
+        git(f"git push -u origin {default_branch}")
+        print(f"Pushed to GitHub: https://github.com/$(gh api user --jq .login)/{name}")
         return True
     except subprocess.CalledProcessError:
-        print(f"Failed to create GitHub repository '{name}'")
+        print("Push failed.")
         return False
 
 def init_git_and_push(project_path, repo_name):
@@ -155,8 +261,8 @@ def show_available_projects():
     print("Available project types:\n")
     for project_type, info in PROJECT_INFO.items():
         print(f"{project_type} - {info['description']}")
-        if info["common_libs"]:
-            print(f"    Common libraries: {', '.join(info['common_libs'])}")
+        if info["default_libs"]:
+            print(f"    Default libraries: {', '.join(info['default_libs'])}")
         if project_type == "expo":
             print("    Special flags: --nativewind")
         if project_type == "github":
@@ -188,11 +294,14 @@ def main():
     parser.add_argument("--private", action="store_true", help="Make GitHub repository private")
     parser.add_argument("--description", help="GitHub repository description")
     parser.add_argument("--push-current", action="store_true", help="(github type only) Create repo and push current directory")
+    parser.add_argument("--create-repo", dest="create_repo", action="store_true", help="create repository for project and push")
+    parser.add_argument("--ts", "--typescript", dest="typescript", action="store_true",
+                        help="Create Express project using TypeScript")
     args = parser.parse_args()
 
     if args.libs is None:
         if args.type in PROJECT_INFO:
-            args.libs = PROJECT_INFO[args.type]["common_libs"]
+            args.libs = PROJECT_INFO[args.type]["default_libs"]
         else:
             args.libs = []
 
@@ -200,11 +309,7 @@ def main():
     project_path = None
 
     if args.type == "express":
-        create_express(args.name, args.libs)
-        project_created = True
-        project_path = Path(args.name)
-    elif args.type == "expo":
-        create_expo(args.name, args.libs, args.nativewind)
+        create_express(args.name, args.libs, args.create_repo, use_ts=args.typescript)
         project_created = True
         project_path = Path(args.name)
     elif args.type == "github":
@@ -212,7 +317,8 @@ def main():
             args.name,
             description=args.description or "",
             private=args.private,
-            push_current=args.push_current
+            push_current=args.push_current,
+            path=Path.cwd()
         )
         return
     else:
