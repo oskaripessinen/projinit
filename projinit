@@ -232,7 +232,6 @@ def create_github_repo(
     git(f"git branch -M {default_branch}")
     try:
         git(f"git push -u origin {default_branch}")
-        print(f"Pushed to GitHub: https://github.com/$(gh api user --jq .login)/{name}")
         return True
     except subprocess.CalledProcessError:
         print("Push failed.")
