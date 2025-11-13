@@ -14,7 +14,7 @@ Add to PATH (optional):
 
 ```bash
 # Add this line to ~/.bashrc or ~/.zshrc
-export PATH="$PATH:/home/oskari/Desktop/pyt/projinit"
+export PATH="$PATH:path/to/projinit"
 ```
 
 Then reload:
@@ -110,23 +110,6 @@ projinit github my-repo --description "My awesome project"
   - Login: `gh auth login`
 - Git (for version control)
 
-## Project Structure
-
-```
-express-project/
-├── src/
-│   ├── controllers/
-│   ├── models/
-│   ├── routes/
-│   ├── middlewares/
-│   ├── utils/
-│   └── index.js (or .ts)
-├── config/
-├── .env
-├── .gitignore
-├── package.json
-└── README.md
-```
 
 ## Default Libraries
 
@@ -147,7 +130,3 @@ projinit express api --with express cors  # Only install cors
 - Use `--github` to automatically create and push to GitHub
 - Use `--private` for private repositories
 - Use `--push-current` to push existing local code to GitHub
-
-## License
-
-MIT

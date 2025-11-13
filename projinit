@@ -16,6 +16,14 @@ PROJECT_INFO = {
         "description": "React Native mobile app with Expo",
         "default_libs": ["expo-constants", "expo-font", "axios"]
     },
+    "vite": {
+        "description": "Vite + React front-end project",
+        "default_libs": []
+    },
+    "next": {
+        "description": "Next.js fullstack project (React + API routes)",
+        "default_libs": []
+    },
     "github": {
         "description": "Create empty remote GitHub repository",
         "default_libs": []
@@ -159,6 +167,409 @@ def create_expo(name, libs, nativewind=False):
     
     print(f"Expo project '{name}' created.")
 
+def create_vite(name, libs, create_repo, tailwind=False, use_ts=False):
+    project_path = Path(name)
+
+    if project_path.exists() and any(project_path.iterdir()):
+        print(f"Error: directory '{name}' already exists and is not empty.")
+        return False
+
+    template = "react-ts" if use_ts else "react"
+    parent_dir = project_path.parent if project_path.parent != Path('.') else Path.cwd()
+    run(f"npm create vite@latest {project_path.name} -- --template {template}", cwd=parent_dir)
+    run("npm install", cwd=project_path)
+
+    src_path = project_path / "src"
+    for folder in ("components", "hooks", "pages", "styles", "utils"):
+        (src_path / folder).mkdir(parents=True, exist_ok=True)
+
+    if tailwind:
+        # Install Tailwind and related PostCSS deps
+        run("npm install -D tailwindcss@3 postcss autoprefixer", cwd=project_path)
+
+        # Prefer local binary if present, otherwise fall back to npx variants.
+        local_tailwind = project_path / "node_modules" / ".bin" / "tailwindcss"
+        init_cmds = []
+        if local_tailwind.exists():
+            init_cmds.append(f"{str(local_tailwind)} init -p")
+        # try a non-interactive npx first, then a version-pinned fallback
+        init_cmds.append("npx --yes tailwindcss init -p")
+        init_cmds.append("npx tailwindcss@latest init -p")
+
+        init_succeeded = False
+        for cmd in init_cmds:
+            try:
+                run(cmd, cwd=project_path)
+                init_succeeded = True
+                break
+            except subprocess.CalledProcessError:
+                # try next fallback
+                continue
+
+        if not init_succeeded:
+            print("Warning: running 'tailwindcss init -p' failed. You may need to run:\n  cd {0}\n  npx tailwindcss@latest init -p".format(project_path))
+
+        tailwind_config = (
+            "/** @type {import('tailwindcss').Config} */\n"
+            "export default {\n"
+            "  content: [\n"
+            "    './index.html',\n"
+            "    './src/**/*.{js,ts,jsx,tsx}',\n"
+            "  ],\n"
+            "  theme: {\n"
+            "    extend: {},\n"
+            "  },\n"
+            "  plugins: [],\n"
+            "}\n"
+        )
+        (project_path / "tailwind.config.js").write_text(tailwind_config)
+
+        global_css = (
+            "@tailwind base;\n"
+            "@tailwind components;\n"
+            "@tailwind utilities;\n\n"
+            ":root {\n"
+            "  color-scheme: light;\n"
+            "}\n\n"
+            "body {\n"
+            "  margin: 0;\n"
+            "  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;\n"
+            "  background-color: #0f172a;\n"
+            "  color: #f8fafc;\n"
+            "}\n\n"
+            "a {\n"
+            "  color: inherit;\n"
+            "  text-decoration: none;\n"
+            "}\n"
+        )
+
+        app_component = (
+            "export default function App() {\n"
+            "  return (\n"
+            "    <main className=\"min-h-screen bg-slate-950 text-slate-100 flex items-center\">\n"
+            "      <section className=\"mx-auto max-w-2xl px-6 py-16 text-center\">\n"
+            "        <span className=\"inline-flex items-center justify-center rounded-full border border-slate-700 px-3 py-1 text-sm font-medium uppercase tracking-wide text-slate-300\">Welcome</span>\n"
+            "        <h1 className=\"mt-6 text-4xl font-semibold tracking-tight\">{PROJECT_NAME}</h1>\n"
+            "        <p className=\"mt-4 text-base text-slate-300\">This project is ready to ship with Vite, React, and Tailwind CSS.</p>\n"
+            "        <div className=\"mt-8 flex flex-wrap items-center justify-center gap-4 text-sm uppercase font-medium\">\n"
+            "          <a className=\"rounded-md bg-sky-500 px-5 py-3 text-white shadow-sm transition hover:bg-sky-400\" href=\"https://vitejs.dev/\" target=\"_blank\" rel=\"noreferrer\">Vite Docs</a>\n"
+            "          <a className=\"rounded-md border border-slate-700 px-5 py-3 text-slate-200 transition hover:border-slate-500\" href=\"https://tailwindcss.com/docs\" target=\"_blank\" rel=\"noreferrer\">Tailwind Docs</a>\n"
+            "        </div>\n"
+            "      </section>\n"
+            "    </main>\n"
+            "  );\n"
+            "}\n"
+        ).replace("{PROJECT_NAME}", name)
+        # write generated Tailwind files
+        (src_path / "styles" / "global.css").write_text(global_css)
+        if use_ts:
+            (src_path / "App.tsx").write_text(app_component)
+        else:
+            (src_path / "App.jsx").write_text(app_component)
+    else:
+        global_css = (
+            ":root {\n"
+            "  color: #0f172a;\n"
+            "  background-color: #f8fafc;\n"
+            "  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;\n"
+            "  line-height: 1.5;\n"
+            "}\n\n"
+            "* {\n"
+            "  box-sizing: border-box;\n"
+            "}\n\n"
+            "body {\n"
+            "  margin: 0;\n"
+            "  min-height: 100vh;\n"
+            "}\n\n"
+            "a {\n"
+            "  color: inherit;\n"
+            "  text-decoration: none;\n"
+            "}\n\n"
+            ".app {\n"
+            "  display: flex;\n"
+            "  min-height: 100vh;\n"
+            "  align-items: center;\n"
+            "  justify-content: center;\n"
+            "  background: radial-gradient(circle at top, #dbeafe 0%, #f8fafc 55%, #e2e8f0 100%);\n"
+            "}\n\n"
+            ".hero {\n"
+            "  max-width: 32rem;\n"
+            "  text-align: center;\n"
+            "  padding: 3rem;\n"
+            "  border-radius: 1.5rem;\n"
+            "  background-color: #ffffff;\n"
+            "  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.15);\n"
+            "}\n\n"
+            ".hero h1 {\n"
+            "  margin-bottom: 1rem;\n"
+            "  font-size: 2.5rem;\n"
+            "  font-weight: 600;\n"
+            "}\n\n"
+            ".hero p {\n"
+            "  margin-bottom: 2rem;\n"
+            "  color: #475569;\n"
+            "}\n\n"
+            ".hero a {\n"
+            "  display: inline-flex;\n"
+            "  align-items: center;\n"
+            "  gap: 0.5rem;\n"
+            "  padding: 0.75rem 1.5rem;\n"
+            "  border-radius: 9999px;\n"
+            "  background-color: #2563eb;\n"
+            "  color: #f8fafc;\n"
+            "  font-weight: 600;\n"
+            "  transition: background-color 0.2s ease;\n"
+            "}\n\n"
+            ".hero a:hover {\n"
+            "  background-color: #1d4ed8;\n"
+            "}\n"
+        )
+
+        app_component = (
+            "export default function App() {\n"
+            "  return (\n"
+            "    <main className=\"app\">\n"
+            "      <section className=\"hero\">\n"
+            "        <h1>{PROJECT_NAME}</h1>\n"
+            "        <p>Kickstart your project with a clean Vite + React scaffold.</p>\n"
+            "        <a href=\"https://vitejs.dev\" target=\"_blank\" rel=\"noreferrer\">Explore Vite</a>\n"
+            "      </section>\n"
+            "    </main>\n"
+            "  );\n"
+            "}\n"
+        ).replace("{PROJECT_NAME}", name)
+
+        (src_path / "styles" / "global.css").write_text(global_css)
+        if use_ts:
+            (src_path / "App.tsx").write_text(app_component)
+        else:
+            (src_path / "App.jsx").write_text(app_component)
+
+    # main entry — choose correct App import / file extension for TS or JS
+    if use_ts:
+        main_jsx = (
+            "import React from 'react'\n"
+            "import ReactDOM from 'react-dom/client'\n"
+            "import App from './App.tsx'\n"
+            "import './styles/global.css'\n\n"
+            "ReactDOM.createRoot(document.getElementById('root')).render(\n"
+            "  <React.StrictMode>\n"
+            "    <App />\n"
+            "  </React.StrictMode>,\n"
+            ")\n"
+        )
+        (src_path / "main.tsx").write_text(main_jsx)
+    else:
+        main_jsx = (
+            "import React from 'react'\n"
+            "import ReactDOM from 'react-dom/client'\n"
+            "import App from './App.jsx'\n"
+            "import './styles/global.css'\n\n"
+            "ReactDOM.createRoot(document.getElementById('root')).render(\n"
+            "  <React.StrictMode>\n"
+            "    <App />\n"
+            "  </React.StrictMode>,\n"
+            ")\n"
+        )
+        (src_path / "main.jsx").write_text(main_jsx)
+
+    index_css = src_path / "index.css"
+    if index_css.exists():
+        index_css.unlink()
+
+    if libs:
+        run(f"npm install {' '.join(libs)}", cwd=project_path)
+
+    if create_repo:
+        create_github_repo(name, push_current=True, path=project_path)
+
+    print(f"Vite project '{name}' created{' with Tailwind CSS' if tailwind else ''}.")
+    return True
+
+
+def create_next(name, libs, create_repo, tailwind=True, use_ts=False, separate_backend=False):
+    """Create a Next.js project scaffold with optional Tailwind and optional separate backend.
+
+    If separate_backend is True, an Express backend will be created in a sibling folder
+    called '<name>-backend' so it can be deployed separately. Otherwise, an example API
+    route will be added inside the Next.js app (pages/api/hello).
+    """
+    project_path = Path(name)
+
+    if project_path.exists() and any(project_path.iterdir()):
+        print(f"Error: directory '{name}' already exists and is not empty.")
+        return False
+
+    parent_dir = project_path.parent if project_path.parent != Path('.') else Path.cwd()
+    cmd = f"npx create-next-app@latest {project_path.name} --use-npm"
+    if use_ts:
+        cmd += " --ts"
+
+    run(cmd, cwd=parent_dir)
+
+    # Install Tailwind if requested and wire up basic config
+    if tailwind:
+        run("npm install -D tailwindcss@3 postcss autoprefixer", cwd=project_path)
+
+        # Prefer local binary first
+        local_tailwind = project_path / "node_modules" / ".bin" / "tailwindcss"
+        init_cmds = []
+        if local_tailwind.exists():
+            init_cmds.append(f"{str(local_tailwind)} init -p")
+        init_cmds.append("npx --yes tailwindcss init -p")
+        init_cmds.append("npx tailwindcss@latest init -p")
+
+        init_succeeded = False
+        for tcmd in init_cmds:
+            try:
+                run(tcmd, cwd=project_path)
+                init_succeeded = True
+                break
+            except subprocess.CalledProcessError:
+                continue
+
+        if not init_succeeded:
+            print("Warning: tailwind init failed. You may need to run: cd {0} && npx tailwindcss@latest init -p".format(project_path))
+
+        # Write a sensible tailwind config including Next.js content paths
+        tailwind_config = (
+            "module.exports = {\n"
+            "  content: [\n"
+            "    './app/**/*.{js,ts,jsx,tsx}',\n"
+            "    './pages/**/*.{js,ts,jsx,tsx}',\n"
+            "    './components/**/*.{js,ts,jsx,tsx}',\n"
+            "  ],\n"
+            "  theme: {\n"
+            "    extend: {},\n"
+            "  },\n"
+            "  plugins: [],\n"
+            "}\n"
+        )
+        (project_path / "tailwind.config.js").write_text(tailwind_config)
+
+        # Overwrite globals.css with Tailwind directives
+        styles_dir = project_path / "styles"
+        styles_dir.mkdir(parents=True, exist_ok=True)
+        global_css = (
+            "@tailwind base;\n"
+            "@tailwind components;\n"
+            "@tailwind utilities;\n"
+            "\n"
+            "html,body {\n"
+            "  padding: 0;\n"
+            "  margin: 0;\n"
+            "  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;\n"
+            "}\n"
+        )
+        (styles_dir / "globals.css").write_text(global_css)
+
+    # Add a simple API route inside Next.js app (pages/api/hello)
+    api_dir = project_path / "pages" / "api"
+    api_dir.mkdir(parents=True, exist_ok=True)
+    if use_ts:
+        api_code = (
+            "import type { NextApiRequest, NextApiResponse } from 'next'\n\n"
+            "export default function handler(req: NextApiRequest, res: NextApiResponse) {\n"
+            "  res.status(200).json({ message: 'Hello from Next.js API (TypeScript)' })\n"
+            "}\n"
+        )
+        (api_dir / "hello.ts").write_text(api_code)
+    else:
+        api_code = (
+            "export default function handler(req, res) {\n"
+            "  res.status(200).json({ message: 'Hello from Next.js API' })\n"
+            "}\n"
+        )
+        (api_dir / "hello.js").write_text(api_code)
+
+    # Optionally create a separate Express backend alongside the Next app
+    if separate_backend:
+        backend_name = f"{project_path.name}-backend"
+        create_express(backend_name, libs, create_repo=False, use_ts=False)
+        print(f"Created separate backend: {backend_name}")
+
+    if create_repo:
+        create_github_repo(name, push_current=True, path=project_path)
+
+    print(f"Next.js project '{name}' created{' with Tailwind' if tailwind else ''}.")
+    return True
+
+def deploy_to_vercel(project_path, project_name, project_type, repo_url=None):
+    if project_type not in ("vite", "next"):
+        print("Automatic Vercel deployment is currently supported only for Vite and Next.js projects.")
+        return False
+
+    vercel_config_path = project_path / "vercel.json"
+    if not vercel_config_path.exists():
+        if project_type == "vite":
+            vercel_config = {
+                "buildCommand": "npm run build",
+                "outputDirectory": "dist",
+                "framework": "vite"
+            }
+        else:  # next
+            vercel_config = {
+                "buildCommand": "npm run build",
+                "framework": "nextjs"
+            }
+        vercel_config_path.write_text(json.dumps(vercel_config, indent=2))
+
+    if repo_url is None:
+        probe = subprocess.run(
+            "git config --get remote.origin.url",
+            shell=True,
+            cwd=project_path,
+            capture_output=True,
+            text=True
+        )
+        if probe.returncode == 0:
+            repo_url = probe.stdout.strip()
+
+    git_linked = False
+    if repo_url:
+        repo_url = repo_url.strip()
+        if repo_url.endswith(".git"):
+            repo_url = repo_url[:-4]
+        if repo_url.startswith("git@github.com:"):
+            repo_url = repo_url.replace("git@github.com:", "https://github.com/")
+        if "github.com" not in repo_url:
+            print("Detected remote is not a GitHub repository. Skipping Git-linked deployment path.")
+        else:
+            # Try to import the GitHub repo into Vercel (preferred). If that fails,
+            # fall back to linking the local directory to an existing Vercel project.
+            try:
+                run(f'vercel import "{repo_url}" --yes', cwd=project_path)
+                git_linked = True
+            except subprocess.CalledProcessError:
+                print("Vercel import failed or the project may already exist. Trying to link the local folder...")
+
+            try:
+                run(f'vercel link --project "{project_name}" --yes', cwd=project_path)
+                git_linked = True
+            except subprocess.CalledProcessError:
+                print("Vercel link failed. If the project is already linked, you can ignore this message.")
+                print("If you want Vercel to auto-deploy from GitHub, import the repo in the Vercel dashboard or run:")
+                print(f"  vercel import {repo_url} --yes")
+    if not git_linked:
+        print(
+            "Could not configure GitHub integration automatically. Falling back to direct deployment."
+        )
+        try:
+            run("vercel deploy --prod --yes", cwd=project_path)
+        except subprocess.CalledProcessError:
+            print(
+                "Vercel deployment failed. Ensure Vercel CLI is installed with `npm install -g vercel` "
+                "and that you are logged in via `vercel login`."
+            )
+            return False
+        print(f"Project '{project_name}' deployed to Vercel (direct deploy).")
+        return True
+
+    print(
+        f"Vercel project '{project_name}' linked to GitHub repository. New pushes will trigger deployments."
+    )
+    return True
+
 def create_github_repo(
     name,
     description="",
@@ -245,16 +656,17 @@ def init_git_and_push(project_path, repo_name):
         
         result = subprocess.run("gh api user --jq .login", shell=True, capture_output=True, text=True)
         username = result.stdout.strip()
+        remote_url = f"https://github.com/{username}/{repo_name}.git"
         
-        run(f"git remote add origin https://github.com/{username}/{repo_name}.git", cwd=project_path)
+        run(f"git remote add origin {remote_url}", cwd=project_path)
         run("git branch -M main", cwd=project_path)
         run("git push -u origin main", cwd=project_path)
         
         print(f"Project pushed to GitHub: https://github.com/{username}/{repo_name}")
-        return True
+        return remote_url
     except subprocess.CalledProcessError:
         print("Failed to push to GitHub")
-        return False
+        return None
 
 def show_available_projects():
     print("Available project types:\n")
@@ -264,6 +676,10 @@ def show_available_projects():
             print(f"    Default libraries: {', '.join(info['default_libs'])}")
         if project_type == "expo":
             print("    Special flags: --nativewind")
+        if project_type == "vite":
+            print("    Special flags: --tailwind --vercel")
+        if project_type == "next":
+            print("    Special flags: --tailwind --separate-backend --vercel")
         if project_type == "github":
             print("    Special flags: --private --description 'text' --push-current")
         print()
@@ -276,6 +692,7 @@ def show_available_projects():
     print("  projinit github my-repo --push-current --private --description \"Existing code\"")
     print("\nExamples:")
     print("  projinit express my-api")
+    print("  projinit vite my-web --tailwind")
     print("  projinit expo my-app --nativewind")
     print("  projinit github lib-repo --push-current")
 
@@ -285,11 +702,16 @@ def main():
         return
 
     parser = argparse.ArgumentParser(description="Initialize a new project with templates")
-    parser.add_argument("type", help="Project type (express, expo, github)")
+    parser.add_argument("type", help="Project type (express, expo, vite, github)")
     parser.add_argument("name", help="Project name")
     parser.add_argument("--with", nargs="*", help="Extra libraries to install", dest="libs")
     parser.add_argument("--nativewind", action="store_true", help="Setup Expo project with NativeWind")
-    parser.add_argument("--github", action="store_true", help="Create GitHub repository (for express/expo types)")
+    parser.add_argument("--tailwind", action="store_true", help="Add Tailwind CSS (for Vite projects)")
+    parser.add_argument("--vite-ts", dest="vite_ts", action="store_true", help="Create Vite frontend using TypeScript")
+    parser.add_argument("--monorepo", action="store_true", help="Create a monorepo with frontend and backend (packages/frontend, packages/backend)")
+    parser.add_argument("--separate-backend", action="store_true", help="(next only) Create a separate Express backend alongside the Next frontend")
+    parser.add_argument("--github", action="store_true", help="Create GitHub repository (for express/vite types)")
+    parser.add_argument("--vercel", action="store_true", help="Deploy to Vercel after project creation (Vite/Next only)")
     parser.add_argument("--private", action="store_true", help="Make GitHub repository private")
     parser.add_argument("--description", help="GitHub repository description")
     parser.add_argument("--push-current", action="store_true", help="(github type only) Create repo and push current directory")
@@ -306,11 +728,53 @@ def main():
 
     project_created = False
     project_path = None
+    github_repo_url = None
+    monorepo_frontend = None
 
-    if args.type == "express":
+    if args.monorepo:
+        # Create monorepo root
+        root = Path(args.name)
+        root.mkdir(exist_ok=True)
+        # root package.json with npm workspaces
+        root_pkg = {
+            "name": args.name,
+            "private": True,
+            "workspaces": ["packages/*"]
+        }
+        (root / "package.json").write_text(json.dumps(root_pkg, indent=2))
+
+        frontend_path = root / "packages" / "frontend"
+        backend_path = root / "packages" / "backend"
+        frontend_path.mkdir(parents=True, exist_ok=True)
+        backend_path.mkdir(parents=True, exist_ok=True)
+
+        # Create frontend and backend inside monorepo
+        if args.type == "next":
+            create_next(str(frontend_path), args.libs, False, tailwind=args.tailwind, use_ts=args.typescript)
+        else:
+            create_vite(str(frontend_path), args.libs, False, tailwind=args.tailwind, use_ts=args.vite_ts)
+
+        create_express(str(backend_path), args.libs, False, use_ts=args.typescript)
+
+        # remember frontend path for deployments
+        monorepo_frontend = frontend_path
+
+        project_created = True
+        project_path = root
+    elif args.type == "express":
         create_express(args.name, args.libs, args.create_repo, use_ts=args.typescript)
         project_created = True
         project_path = Path(args.name)
+    elif args.type == "vite":
+        success = create_vite(args.name, args.libs, args.create_repo, tailwind=args.tailwind, use_ts=args.vite_ts)
+        project_created = bool(success)
+        if success:
+            project_path = Path(args.name)
+    elif args.type == "next":
+        success = create_next(args.name, args.libs, args.create_repo, tailwind=args.tailwind, use_ts=args.typescript, separate_backend=args.separate_backend)
+        project_created = bool(success)
+        if success:
+            project_path = Path(args.name)
     elif args.type == "github":
         create_github_repo(
             args.name,
@@ -328,8 +792,16 @@ def main():
         return
 
     if args.github and project_created:
+        # Create remote GitHub repo for the monorepo root (or project root)
         if create_github_repo(args.name, args.description or f"A {args.type} project", args.private):
-            init_git_and_push(project_path, args.name)
+            github_repo_url = init_git_and_push(project_path, args.name)
+
+    if args.vercel and project_created:
+        # For monorepos, deploy the frontend package so Vercel builds the front-end app
+        if args.monorepo and monorepo_frontend is not None:
+            deploy_to_vercel(monorepo_frontend, f"{args.name}-frontend", args.type, repo_url=github_repo_url)
+        else:
+            deploy_to_vercel(project_path, args.name, args.type, repo_url=github_repo_url)
 
 
 if __name__ == "__main__":
